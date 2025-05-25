@@ -1,7 +1,9 @@
 
+// @ts-ignore
 import VaderSentiment from 'vader-sentiment';
 // @ts-ignore
 import GNews from 'gnews';
+import yahooFinance from 'yahoo-finance2';
 
 // Initialize GNews (you'll need to set API key)
 const gnews = new GNews({
@@ -40,16 +42,16 @@ export const fetchStockData = async (symbol: string) => {
   try {
     console.log(`Fetching real stock data for ${symbol}`);
     
-    // Import yahoo-finance2 dynamically
-    const yahooFinance = await import('yahoo-finance2');
-    
-    // Get current quote
-    const quote = await yahooFinance.quote(symbol);
+    // Get current quote using the correct yahooFinance method
+    const quote = await yahooFinance.quoteSummary(symbol, { modules: ['summaryDetail', 'price'] });
     
     // Get historical data for chart (last 30 days)
+    const endDate = new Date();
+    const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    
     const historical = await yahooFinance.historical(symbol, {
-      period1: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      period2: new Date().toISOString().split('T')[0],
+      period1: startDate,
+      period2: endDate,
       interval: '1d'
     });
 
@@ -59,8 +61,8 @@ export const fetchStockData = async (symbol: string) => {
       price: Number(item.close.toFixed(2))
     }));
 
-    const currentPrice = quote.regularMarketPrice || 0;
-    const previousClose = quote.regularMarketPreviousClose || currentPrice;
+    const currentPrice = quote.price?.regularMarketPrice || 0;
+    const previousClose = quote.price?.regularMarketPreviousClose || currentPrice;
     const change = currentPrice - previousClose;
     const changePercent = (change / previousClose) * 100;
 
