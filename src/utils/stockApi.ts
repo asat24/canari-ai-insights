@@ -1,203 +1,120 @@
 
-// Client-side stock data fetching and analysis utilities
+import VaderSentiment from 'vader-sentiment';
+// @ts-ignore
+import GNews from 'gnews';
 
-// Enhanced sentiment analysis (replacing vader-sentiment for client-side)
+// Initialize GNews (you'll need to set API key)
+const gnews = new GNews({
+  apikey: process.env.GNEWS_API_KEY || 'your-gnews-api-key-here',
+  language: 'en',
+  country: 'us',
+  max: 10
+});
+
+// Enhanced sentiment analysis using vader-sentiment
 export const analyzeSentiment = (articles: any[]) => {
   if (!articles || articles.length === 0) {
     return { score: 0, summary: 'No sentiment data available' };
   }
 
-  // Expanded sentiment word lists with weights
-  const sentimentWords = {
-    positive: {
-      'bull': 0.8, 'bullish': 0.8, 'surge': 0.7, 'soar': 0.7, 'rally': 0.6,
-      'gain': 0.5, 'gains': 0.5, 'profit': 0.6, 'profits': 0.6, 'growth': 0.5,
-      'rise': 0.4, 'rising': 0.4, 'up': 0.3, 'increase': 0.4, 'strong': 0.5,
-      'buy': 0.6, 'upgrade': 0.7, 'outperform': 0.6, 'beat': 0.5, 'beats': 0.5,
-      'positive': 0.4, 'optimistic': 0.5, 'confident': 0.4, 'success': 0.5,
-      'excellent': 0.7, 'outstanding': 0.8, 'breakthrough': 0.7, 'innovation': 0.5
-    },
-    negative: {
-      'bear': 0.8, 'bearish': 0.8, 'crash': 0.9, 'plunge': 0.8, 'tumble': 0.7,
-      'fall': 0.5, 'falling': 0.5, 'drop': 0.5, 'decline': 0.5, 'loss': 0.6,
-      'losses': 0.6, 'down': 0.3, 'decrease': 0.4, 'weak': 0.5, 'sell': 0.6,
-      'downgrade': 0.7, 'underperform': 0.6, 'miss': 0.5, 'misses': 0.5,
-      'negative': 0.4, 'concern': 0.4, 'concerns': 0.4, 'risk': 0.5, 'risks': 0.5,
-      'warning': 0.6, 'challenge': 0.4, 'challenges': 0.4, 'trouble': 0.6
-    }
-  };
-
   let totalScore = 0;
   let analyzedCount = 0;
 
   articles.forEach(article => {
-    const text = (article.title + ' ' + (article.description || '')).toLowerCase();
-    let articleScore = 0;
-    
-    // Check positive words
-    Object.entries(sentimentWords.positive).forEach(([word, weight]) => {
-      const regex = new RegExp(`\\b${word}\\b`, 'g');
-      const matches = text.match(regex);
-      if (matches) {
-        articleScore += (weight as number) * matches.length;
-      }
-    });
-    
-    // Check negative words
-    Object.entries(sentimentWords.negative).forEach(([word, weight]) => {
-      const regex = new RegExp(`\\b${word}\\b`, 'g');
-      const matches = text.match(regex);
-      if (matches) {
-        articleScore -= (weight as number) * matches.length;
-      }
-    });
-    
-    totalScore += articleScore;
+    const text = (article.title + ' ' + (article.description || ''));
+    const sentiment = VaderSentiment.SentimentIntensityAnalyzer.polarity_scores(text);
+    totalScore += sentiment.compound;
     analyzedCount++;
   });
 
   const avgScore = analyzedCount > 0 ? totalScore / analyzedCount : 0;
   
   return {
-    score: Math.max(-1, Math.min(1, avgScore)), // Clamp between -1 and 1
-    summary: avgScore > 0.2 ? 'Positive' : avgScore < -0.2 ? 'Negative' : 'Neutral'
+    score: avgScore,
+    summary: avgScore > 0.05 ? 'Positive' : avgScore < -0.05 ? 'Negative' : 'Neutral'
   };
 };
 
-// Enhanced stock data fetching with realistic mock data
+// Real stock data fetching using yahoo-finance2
 export const fetchStockData = async (symbol: string) => {
   try {
-    console.log(`Fetching enhanced stock data for ${symbol}`);
+    console.log(`Fetching real stock data for ${symbol}`);
     
-    // Enhanced mock data with more realistic patterns
-    const basePrice = 100 + Math.random() * 300; // Price between $100-$400
-    const volatility = 0.02 + Math.random() * 0.03; // 2-5% volatility
-    const trend = (Math.random() - 0.5) * 0.1; // -5% to +5% trend
+    // Import yahoo-finance2 dynamically
+    const yahooFinance = await import('yahoo-finance2');
     
-    // Generate realistic intraday data (last 6 hours)
-    const chartData = [];
-    let currentPrice = basePrice;
-    const now = new Date();
+    // Get current quote
+    const quote = await yahooFinance.quote(symbol);
     
-    for (let i = 0; i < 360; i += 5) { // Every 5 minutes for 6 hours
-      const time = new Date(now.getTime() - (360 - i) * 60000);
-      
-      // Add realistic price movement
-      const randomChange = (Math.random() - 0.5) * volatility * currentPrice;
-      const trendChange = trend * currentPrice / 360;
-      currentPrice += randomChange + trendChange;
-      
-      chartData.push({
-        time: time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        price: Number(currentPrice.toFixed(2))
-      });
-    }
+    // Get historical data for chart (last 30 days)
+    const historical = await yahooFinance.historical(symbol, {
+      period1: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      period2: new Date().toISOString().split('T')[0],
+      interval: '1d'
+    });
 
-    const dayChange = currentPrice - basePrice;
-    const changePercent = (dayChange / basePrice) * 100;
+    // Format chart data
+    const chartData = historical.slice(-30).map((item, index) => ({
+      time: new Date(item.date).toLocaleDateString(),
+      price: Number(item.close.toFixed(2))
+    }));
+
+    const currentPrice = quote.regularMarketPrice || 0;
+    const previousClose = quote.regularMarketPreviousClose || currentPrice;
+    const change = currentPrice - previousClose;
+    const changePercent = (change / previousClose) * 100;
 
     return {
       symbol,
       currentPrice: Number(currentPrice.toFixed(2)),
-      change: Number(dayChange.toFixed(2)),
+      change: Number(change.toFixed(2)),
       changePercent: Number(changePercent.toFixed(2)),
-      chartData: chartData.slice(-50) // Last 50 data points for performance
+      chartData
     };
   } catch (error) {
     console.error('Error fetching stock data:', error);
-    throw new Error('Failed to fetch stock data');
+    throw new Error('Failed to fetch real stock data');
   }
 };
 
-// Enhanced news fetching with realistic mock data
+// Real news fetching using GNews API
 export const fetchNewsData = async (symbol: string) => {
   try {
-    console.log(`Fetching enhanced news for ${symbol}`);
+    console.log(`Fetching real news for ${symbol}`);
     
-    // Simulate realistic news articles
-    const newsSources = ['Reuters', 'Bloomberg', 'CNBC', 'MarketWatch', 'Yahoo Finance', 'Financial Times'];
-    const newsTypes = [
-      'earnings', 'analysis', 'upgrade', 'downgrade', 'merger', 'acquisition',
-      'regulatory', 'market', 'innovation', 'partnership'
-    ];
-    
-    const mockNews = [];
-    const numArticles = 6 + Math.floor(Math.random() * 6); // 6-12 articles
-    
-    for (let i = 0; i < numArticles; i++) {
-      const source = newsSources[Math.floor(Math.random() * newsSources.length)];
-      const newsType = newsTypes[Math.floor(Math.random() * newsTypes.length)];
-      const timeAgo = Math.floor(Math.random() * 3600000 * 12); // Up to 12 hours ago
-      
-      // Generate realistic headlines
-      const headlines = {
-        earnings: [
-          `${symbol} Reports Strong Q4 Earnings, Beats Wall Street Expectations`,
-          `${symbol} Revenue Jumps 15% in Latest Quarter, Shares Rally`,
-          `${symbol} Posts Record Quarterly Profits, Raises Full-Year Guidance`
-        ],
-        analysis: [
-          `Market Analysis: Why ${symbol} Could Be the Top Pick This Quarter`,
-          `${symbol} Technical Analysis: Key Support and Resistance Levels`,
-          `Investment Outlook: ${symbol} Fundamentals Remain Strong`
-        ],
-        upgrade: [
-          `Major Bank Upgrades ${symbol} to 'Buy' Rating, Raises Price Target`,
-          `${symbol} Gets Rating Boost from Top Analysts Following Strong Performance`,
-          `Wall Street Bullish on ${symbol}: Multiple Upgrades This Week`
-        ],
-        innovation: [
-          `${symbol} Unveils Revolutionary Technology That Could Transform Industry`,
-          `${symbol} Patents Breakthrough Innovation, Stock Surges on News`,
-          `${symbol} R&D Investment Pays Off with Major Product Launch`
-        ]
-      };
-      
-      const headlineOptions = headlines[newsType as keyof typeof headlines] || [
-        `${symbol} Makes Headlines with Latest Development`,
-        `${symbol} in Focus: Latest Market Updates`
-      ];
-      
-      const title = headlineOptions[Math.floor(Math.random() * headlineOptions.length)];
-      
-      // Generate sentiment based on news type
-      let sentiment = 0;
-      switch (newsType) {
-        case 'earnings':
-        case 'upgrade':
-        case 'innovation':
-          sentiment = 0.3 + Math.random() * 0.5; // Positive
-          break;
-        case 'downgrade':
-        case 'regulatory':
-          sentiment = -0.3 - Math.random() * 0.4; // Negative
-          break;
-        default:
-          sentiment = (Math.random() - 0.5) * 0.6; // Mixed
-      }
-      
-      mockNews.push({
-        title,
-        description: `Latest developments regarding ${symbol} and market analysis. Professional insights and expert commentary on recent activities.`,
-        url: `https://example.com/news/${symbol.toLowerCase()}-${newsType}-${Date.now() + i}`,
-        publishedAt: new Date(Date.now() - timeAgo).toISOString(),
-        source,
-        sentiment: Number(sentiment.toFixed(2))
-      });
-    }
-    
-    // Sort by publish time (newest first)
-    return mockNews.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+    // Search for news related to the stock symbol
+    const articles = await gnews.search({
+      q: `${symbol} stock OR ${symbol} earnings OR ${symbol} financial`,
+      max: 10
+    });
+
+    return articles.articles.map((article: any) => ({
+      title: article.title,
+      description: article.description,
+      url: article.url,
+      publishedAt: article.publishedAt,
+      source: article.source.name,
+      sentiment: 0 // Will be calculated by analyzeSentiment
+    }));
   } catch (error) {
     console.error('Error fetching news data:', error);
-    throw new Error('Failed to fetch news data');
+    
+    // Fallback: Return minimal news structure if API fails
+    return [{
+      title: `${symbol} - News currently unavailable`,
+      description: 'Please check your GNews API configuration',
+      url: '#',
+      publishedAt: new Date().toISOString(),
+      source: 'System',
+      sentiment: 0
+    }];
   }
 };
 
-// Get comprehensive stock analysis
+// Get comprehensive stock analysis with real data
 export const getStockAnalysis = async (symbol: string) => {
   try {
-    console.log(`Getting comprehensive analysis for ${symbol}`);
+    console.log(`Getting real comprehensive analysis for ${symbol}`);
     
     const [stockData, newsData] = await Promise.all([
       fetchStockData(symbol),
@@ -206,7 +123,7 @@ export const getStockAnalysis = async (symbol: string) => {
     
     const sentiment = analyzeSentiment(newsData);
     
-    // Generate trading recommendation
+    // Generate trading recommendation based on real data
     let recommendation = 'HOLD';
     let confidence = 'Medium';
     
