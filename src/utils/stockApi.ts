@@ -1,8 +1,12 @@
 
-// Browser-compatible stock API implementation
-// Using Alpha Vantage API for real stock data (free tier available)
+import yahooFinance from 'yahoo-finance2';
+import { GNews } from 'gnews';
+import { API_CONFIG } from '@/config/api';
 
-// Simple sentiment analysis function (browser-compatible alternative to vader-sentiment)
+// Initialize GNews with API key
+const gnews = new GNews(API_CONFIG.GNEWS_API_KEY);
+
+// Simple sentiment analysis function
 const analyzeSentimentSimple = (text: string): number => {
   const positiveWords = ['good', 'great', 'excellent', 'positive', 'up', 'gain', 'profit', 'bull', 'rise', 'strong', 'growth', 'buy'];
   const negativeWords = ['bad', 'terrible', 'negative', 'down', 'loss', 'bear', 'fall', 'weak', 'decline', 'sell', 'drop'];
@@ -42,50 +46,33 @@ export const analyzeSentiment = (articles: any[]) => {
   };
 };
 
-// Real stock data fetching using Alpha Vantage API (browser-compatible)
+// Real stock data fetching using Yahoo Finance
 export const fetchStockData = async (symbol: string) => {
   try {
-    console.log(`Fetching real stock data for ${symbol}`);
-    
-    // You can get a free API key from https://www.alphavantage.co/support/#api-key
-    const API_KEY = 'demo'; // Replace with your actual API key
+    console.log(`Fetching real stock data for ${symbol} using Yahoo Finance`);
     
     // Fetch current quote
-    const quoteResponse = await fetch(
-      `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=${API_KEY}`
-    );
-    const quoteData = await quoteResponse.json();
+    const quote = await yahooFinance.quote(symbol);
     
-    // Fetch daily data for chart
-    const dailyResponse = await fetch(
-      `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${symbol}&apikey=${API_KEY}`
-    );
-    const dailyData = await dailyResponse.json();
+    // Fetch historical data for chart (last 30 days)
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 30);
     
-    // Handle API limit or demo data
-    if (quoteData['Error Message'] || dailyData['Error Message'] || API_KEY === 'demo') {
-      // Return demo data when API limit is reached or using demo key
-      return generateDemoStockData(symbol);
-    }
+    const historical = await yahooFinance.historical(symbol, {
+      period1: startDate,
+      period2: endDate,
+      interval: '1d'
+    });
     
-    const quote = quoteData['Global Quote'];
-    const timeSeries = dailyData['Time Series (Daily)'];
-    
-    if (!quote || !timeSeries) {
-      return generateDemoStockData(symbol);
-    }
-    
-    // Format chart data from last 30 days
-    const chartData = Object.entries(timeSeries)
-      .slice(0, 30)
-      .reverse()
-      .map(([date, data]: [string, any]) => ({
-        time: new Date(date).toLocaleDateString(),
-        price: Number(parseFloat(data['4. close']).toFixed(2))
-      }));
+    // Format chart data
+    const chartData = historical.slice(-30).map(data => ({
+      time: new Date(data.date).toLocaleDateString(),
+      price: Number(data.close.toFixed(2))
+    }));
 
-    const currentPrice = parseFloat(quote['05. price']);
-    const previousClose = parseFloat(quote['08. previous close']);
+    const currentPrice = quote.regularMarketPrice || 0;
+    const previousClose = quote.regularMarketPreviousClose || 0;
     const change = currentPrice - previousClose;
     const changePercent = (change / previousClose) * 100;
 
@@ -97,62 +84,24 @@ export const fetchStockData = async (symbol: string) => {
       chartData
     };
   } catch (error) {
-    console.error('Error fetching stock data:', error);
-    // Fallback to demo data
-    return generateDemoStockData(symbol);
+    console.error('Error fetching stock data from Yahoo Finance:', error);
+    throw new Error(`Failed to fetch stock data for ${symbol}`);
   }
 };
 
-// Generate realistic demo data for development/testing
-const generateDemoStockData = (symbol: string) => {
-  const basePrice = Math.random() * 200 + 50; // Random price between 50-250
-  const change = (Math.random() - 0.5) * 10; // Random change between -5 to +5
-  const changePercent = (change / basePrice) * 100;
-  
-  // Generate 30 days of chart data
-  const chartData = Array.from({ length: 30 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (29 - i));
-    const priceVariation = (Math.random() - 0.5) * 20;
-    return {
-      time: date.toLocaleDateString(),
-      price: Number((basePrice + priceVariation).toFixed(2))
-    };
-  });
-  
-  return {
-    symbol,
-    currentPrice: Number(basePrice.toFixed(2)),
-    change: Number(change.toFixed(2)),
-    changePercent: Number(changePercent.toFixed(2)),
-    chartData
-  };
-};
-
-// News fetching using NewsAPI (browser-compatible)
+// News fetching using GNews
 export const fetchNewsData = async (symbol: string) => {
   try {
-    console.log(`Fetching real news for ${symbol}`);
+    console.log(`Fetching real news for ${symbol} using GNews`);
     
-    // You can get a free API key from https://newsapi.org/
-    const API_KEY = 'demo'; // Replace with your actual NewsAPI key
+    const articles = await gnews.search({
+      q: `${symbol} stock`,
+      lang: 'en',
+      country: 'us',
+      max: 10
+    });
     
-    if (API_KEY === 'demo') {
-      // Return demo news data
-      return generateDemoNewsData(symbol);
-    }
-    
-    const response = await fetch(
-      `https://newsapi.org/v2/everything?q=${symbol} stock&language=en&sortBy=publishedAt&pageSize=10&apiKey=${API_KEY}`
-    );
-    
-    const data = await response.json();
-    
-    if (data.status !== 'ok' || !data.articles) {
-      return generateDemoNewsData(symbol);
-    }
-    
-    return data.articles.map((article: any) => ({
+    return articles.articles.map((article: any) => ({
       title: article.title,
       description: article.description,
       url: article.url,
@@ -161,49 +110,9 @@ export const fetchNewsData = async (symbol: string) => {
       sentiment: analyzeSentimentSimple(article.title + ' ' + (article.description || ''))
     }));
   } catch (error) {
-    console.error('Error fetching news data:', error);
-    return generateDemoNewsData(symbol);
+    console.error('Error fetching news data from GNews:', error);
+    throw new Error(`Failed to fetch news for ${symbol}`);
   }
-};
-
-// Generate demo news data
-const generateDemoNewsData = (symbol: string) => {
-  const demoNews = [
-    {
-      title: `${symbol} Reports Strong Q4 Earnings, Beats Expectations`,
-      description: `${symbol} announced quarterly results that exceeded analyst expectations with strong revenue growth.`,
-      url: '#',
-      publishedAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
-      source: 'Financial Times',
-      sentiment: 0.3
-    },
-    {
-      title: `Market Analysis: ${symbol} Stock Shows Positive Momentum`,
-      description: `Technical analysis suggests ${symbol} may be entering a bullish phase with strong support levels.`,
-      url: '#',
-      publishedAt: new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString(), // 4 hours ago
-      source: 'MarketWatch',
-      sentiment: 0.2
-    },
-    {
-      title: `${symbol} Announces New Strategic Partnership`,
-      description: `The company has formed a strategic alliance that could drive future growth and market expansion.`,
-      url: '#',
-      publishedAt: new Date(Date.now() - 1000 * 60 * 60 * 8).toISOString(), // 8 hours ago
-      source: 'Reuters',
-      sentiment: 0.15
-    },
-    {
-      title: `Analyst Upgrades ${symbol} Rating to Buy`,
-      description: `Leading investment firm raises price target and upgrades rating citing strong fundamentals.`,
-      url: '#',
-      publishedAt: new Date(Date.now() - 1000 * 60 * 60 * 12).toISOString(), // 12 hours ago
-      source: 'Bloomberg',
-      sentiment: 0.25
-    }
-  ];
-  
-  return demoNews;
 };
 
 // Get comprehensive stock analysis
