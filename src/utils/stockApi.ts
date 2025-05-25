@@ -1,6 +1,5 @@
 
 // Client-side stock data fetching and analysis utilities
-import axios from 'axios';
 
 // Mock sentiment analysis (replacing vader-sentiment for client-side)
 export const analyzeSentiment = (articles: any[]) => {
@@ -129,17 +128,23 @@ export const fetchRealStockData = async (symbol: string) => {
   try {
     // Note: This would require a CORS proxy or backend service in production
     // For now, using mock data due to CORS restrictions
-    const response = await axios.get(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`, {
-      params: {
-        region: 'US',
-        lang: 'en-US',
-        includePrePost: false,
-        interval: '1d',
-        range: '1d'
-      }
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}`;
+    const params = new URLSearchParams({
+      region: 'US',
+      lang: 'en-US',
+      includePrePost: 'false',
+      interval: '1d',
+      range: '1d'
     });
     
-    const data = response.data.chart.result[0];
+    const response = await fetch(`${url}?${params}`);
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const responseData = await response.json();
+    const data = responseData.chart.result[0];
     const meta = data.meta;
     const prices = data.indicators.quote[0];
     
